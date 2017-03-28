@@ -76,19 +76,17 @@ export class Box extends LayoutDOM
     return edit_variables
 
   get_constrained_variables: () ->
-    constrained_variables = super()
-    constrained_variables = extend(constrained_variables, {
-      'box-equal-size-top' : @_box_equal_size_top
-      'box-equal-size-bottom' : @_box_equal_size_bottom
-      'box-equal-size-left' : @_box_equal_size_left
-      'box-equal-size-right' : @_box_equal_size_right
+    return extend({}, super(), {
+      box_equal_size_top   : @_box_equal_size_top
+      box_equal_size_bottom: @_box_equal_size_bottom
+      box_equal_size_left  : @_box_equal_size_left
+      box_equal_size_right : @_box_equal_size_right
 
-      'box-cell-align-top' : @_box_cell_align_top
-      'box-cell-align-bottom' : @_box_cell_align_bottom
-      'box-cell-align-left' : @_box_cell_align_left
-      'box-cell-align-right' : @_box_cell_align_right
+      box_cell_align_top   : @_box_cell_align_top
+      box_cell_align_bottom: @_box_cell_align_bottom
+      box_cell_align_left  : @_box_cell_align_left
+      box_cell_align_right : @_box_cell_align_right
     })
-    return constrained_variables
 
   get_constraints: () ->
     # Note we don't got and get constraints from _layout_dom parent.
@@ -101,32 +99,28 @@ export class Box extends LayoutDOM
       return constraints
 
     for child in children
-      # Test it's layoutable
-      @_test_layoutable(child)
-
       vars = child.get_constrained_variables()
-      var_keys = Object.keys(vars)
 
       # Make total widget sizes fill the orthogonal direction
       # TODO(bird) Can't we make this shorter by using span which has already picked a
       # dominant direction (we'd just also need to set a doc_span)
       rect = @_child_rect(vars)
       if @_horizontal
-        if @_has_var('height', var_keys)
+        if vars.height?
           constraints.push(EQ(rect.height, [ -1, @_height ]))
       else
-        if @_has_var('width', var_keys)
+        if vars.width?
           constraints.push(EQ(rect.width, [ -1, @_width ]))
 
-      # Add equal-size constraint
+      # Add equal_size constraint
       # - A child's "interesting area" (like the plot area) is the same size as the previous child
-      #   (a child can opt out of this by not returning the box-equal-size variables)
+      #   (a child can opt out of this by not returning the box_equal_size variables)
       if @_horizontal
-        if @_has_var(['box-equal-size-left', 'box-equal-size-right', 'width'], var_keys)
-          constraints.push(EQ([-1, vars['box-equal-size-left']], [-1, vars['box-equal-size-right']], vars['width'], @_child_equal_size_width))
+        if vars.box_equal_size_left? and vars.box_equal_size_right? and vars.width?
+          constraints.push(EQ([-1, vars.box_equal_size_left], [-1, vars.box_equal_size_right], vars.width, @_child_equal_size_width))
       else
-        if @_has_var(['box-equal-size-top', 'box-equal-size-bottom', 'height'], var_keys)
-          constraints.push(EQ([-1, vars['box-equal-size-top']], [-1, vars['box-equal-size-bottom']], vars['height'], @_child_equal_size_height))
+        if vars.box_equal_size_top? and vars.box_equal_size_bottom? and vars.height?
+          constraints.push(EQ([-1, vars.box_equal_size_top], [-1, vars.box_equal_size_bottom], vars.height, @_child_equal_size_height))
 
       # Pull child constraints up recursively
       constraints = constraints.concat(child.get_constraints())
@@ -154,61 +148,41 @@ export class Box extends LayoutDOM
 
     # Child's side has to stick to the end of the box
     if @_horizontal
-      if @_has_var('width', var_keys)
+      if vars.width?
         constraints.push(EQ(last.span.start, last.span.size, [-1, @_width]))
     else
-      if @_has_var('height', var_keys)
+      if vars.height?
         constraints.push(EQ(last.span.start, last.span.size, [-1, @_height]))
 
-    # align outermost edges in both dimensions
-    constraints = constraints.concat(@_align_outer_edges_constraints(true)) # horizontal=true
-    constraints = constraints.concat(@_align_outer_edges_constraints(false))
+    constraints = constraints.concat(
+      # align outermost edges in both dimensions
+      @_align_outer_edges_constraints(true), # horizontal=true
+      @_align_outer_edges_constraints(false),
 
-    # line up edges in same-arity boxes
-    constraints = constraints.concat(@_align_inner_cell_edges_constraints())
+      # line up edges in same-arity boxes
+      @_align_inner_cell_edges_constraints(),
 
-    # build our equal-size bounds from the child ones
-    constraints = constraints.concat(@_box_equal_size_bounds(true)) # horizontal=true
-    constraints = constraints.concat(@_box_equal_size_bounds(false))
+      # build our equal-size bounds from the child ones
+      @_box_equal_size_bounds(true), # horizontal=true
+      @_box_equal_size_bounds(false),
 
-    # propagate cell alignment (between same-arity boxes) up the hierarchy
-    constraints = constraints.concat(@_box_cell_align_bounds(true)) # horizontal=true
-    constraints = constraints.concat(@_box_cell_align_bounds(false))
+      # propagate cell alignment (between same-arity boxes) up the hierarchy
+      @_box_cell_align_bounds(true), # horizontal=true
+      @_box_cell_align_bounds(false),
 
-    # build our whitespace from the child ones
-    constraints = constraints.concat(@_box_whitespace(true)) # horizontal=true
-    constraints = constraints.concat(@_box_whitespace(false))
+      # build our whitespace from the child ones
+      @_box_whitespace(true), # horizontal=true
+      @_box_whitespace(false))
 
     return constraints
 
-  _has_var: (look_up, var_keys) ->
-    look_up_list = if isString(look_up) then [look_up] else look_up
-    return all(look_up_list, (x) -> x in var_keys)
-
-  _test_layoutable: (child) ->
-    required_constrained_variables = [
-      'origin-x',
-      'origin-y',
-      'whitespace-top',
-      'whitespace-right',
-      'whitespace-bottom',
-      'whitespace-left'
-    ]
-    if not child.get_constrained_variables?
-      throw new Error("#{child} is missing get_constrained_variables method")
-    vars = child.get_constrained_variables()
-    for key in required_constrained_variables
-      if key not in Object.keys(vars)
-        throw new Error("#{child} is missing constrained_variable #{key}")
-      if not vars[key] instanceof Variable
-        throw new Error("#{child} #{key} is not a solver Variable")
-    return true
-
   _child_rect: (vars) ->
-    width = vars['width']
-    height = vars['height']
-    [x, y] = [vars['origin-x'], vars['origin-y']]
-    return {x: x, y: y, width: width, height: height}
+    return {
+      x: vars.origin_x,
+      y: vars.origin_y,
+      width: vars.width,
+      height: vars.height,
+    }
 
   _span: (rect) ->
     # return [coordinate, size] pair in box-aligned direction
@@ -219,9 +193,9 @@ export class Box extends LayoutDOM
 
   _info: (vars) ->
     if @_horizontal
-      whitespace = {before: vars['whitespace-left'], after: vars['whitespace-right']}
+      whitespace = {before: vars.whitespace_left, after: vars.whitespace_right}
     else
-      whitespace = {before: vars['whitespace-top'], after: vars['whitespace-bottom']}
+      whitespace = {before: vars.whitespace_top, after: vars.whitespace_bottom}
     span = @_span(@_child_rect(vars))
     return {span: span, whitespace: whitespace}
 
